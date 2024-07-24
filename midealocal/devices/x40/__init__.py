@@ -2,9 +2,8 @@
 
 import json
 import logging
-import math
 from enum import StrEnum
-from typing import Any, ClassVar
+from typing import Any
 
 from midealocal.const import DeviceType, ProtocolVersion
 from midealocal.device import MideaDevice
@@ -14,8 +13,12 @@ from .message import MessageQuery, MessageSet, MessageX40Response
 _LOGGER = logging.getLogger(__name__)
 
 DIRECTION_MIN_VALUE = 60
-DIRECTION_MAX_VALUE = 100
+DIRECTION_MAX_VALUE = 120
 VENTILATION_FAN_SPEED = 2
+DIRECTION_OSCILLATE = 0xFD
+DIRECTION_STOP = 0xFE
+DIRECTION_00 = 0x00  # Unknown
+DIRECTION_FF = 0xFF  # None
 
 
 class DeviceAttributes(StrEnum):
@@ -24,6 +27,7 @@ class DeviceAttributes(StrEnum):
     light = "light"
     fan_speed = "fan_speed"
     direction = "direction"
+    oscillation = "oscillation"
     ventilation = "ventilation"
     smelly_sensor = "smelly_sensor"
     current_temperature = "current_temperature"
@@ -31,8 +35,6 @@ class DeviceAttributes(StrEnum):
 
 class MideaX40Device(MideaDevice):
     """Midea x40 Device."""
-
-    _directions: ClassVar[list[str]] = ["60", "70", "80", "90", "100", "Oscillate"]
 
     def __init__(
         self,
@@ -62,7 +64,8 @@ class MideaX40Device(MideaDevice):
             attributes={
                 DeviceAttributes.light: False,
                 DeviceAttributes.fan_speed: 0,
-                DeviceAttributes.direction: False,
+                DeviceAttributes.direction: None,  # 60~120 or None
+                DeviceAttributes.oscillation: None,  # bool or None
                 DeviceAttributes.ventilation: False,
                 DeviceAttributes.smelly_sensor: False,
                 DeviceAttributes.current_temperature: None,
@@ -78,24 +81,25 @@ class MideaX40Device(MideaDevice):
         """Midea 40 device precision halves."""
         return self._precision_halves
 
-    @property
-    def directions(self) -> list[str]:
-        """Midea x40 device directions."""
-        return self._directions
-
-    def _convert_to_midea_direction(self, direction: str) -> int:
-        if direction == "Oscillate" or direction not in self._directions:
-            return 0xFD
-
-        return self._directions.index(direction) * 10 + 60
-
     @staticmethod
-    def _convert_from_midea_direction(direction: int) -> int:
-        if direction > DIRECTION_MAX_VALUE or direction < DIRECTION_MIN_VALUE:
-            result = 5
-        else:
-            result = math.floor((direction - 60 + 5) / 10)
-        return result
+    def _convert_to_midea_direction(direction: float | str | bool) -> int:
+        """Deal value from user, if is valid, return it, else return 0xFF."""
+        direction = int(direction)
+        if direction in (DIRECTION_OSCILLATE, DIRECTION_STOP) or (
+            DIRECTION_MIN_VALUE <= direction <= DIRECTION_MAX_VALUE
+        ):
+            return direction
+        return DIRECTION_FF
+
+    def _get_midea_direction(self) -> int:
+        """Get direction byte by oscillation and direction."""
+        oscillation: bool | None = self._attributes[DeviceAttributes.oscillation]
+        if oscillation is True:
+            return DIRECTION_OSCILLATE
+        if oscillation is False:
+            direction: int | None = self._attributes[DeviceAttributes.direction]
+            return DIRECTION_STOP if direction is None else direction
+        return DIRECTION_FF
 
     def build_query(self) -> list[MessageQuery]:
         """Midea x40 Device build query."""
@@ -116,15 +120,21 @@ class MideaX40Device(MideaDevice):
                 ):
                     value /= 2
                 if status == DeviceAttributes.direction:
-                    self._attributes[status] = self._directions[
-                        self._convert_from_midea_direction(value)
-                    ]
-                else:
-                    self._attributes[status] = value
+                    if value in (DIRECTION_STOP, DIRECTION_00, DIRECTION_FF):
+                        # never be 0xFE and don't save 0xFF and 0x00
+                        continue
+                    if value == DIRECTION_OSCILLATE:
+                        # clear the direction and mark oscillation as True
+                        value = None
+                        self._attributes[DeviceAttributes.oscillation] = True
+                    else:
+                        # value is 60~120
+                        self._attributes[DeviceAttributes.oscillation] = False
+                self._attributes[status] = value
                 new_status[str(status)] = self._attributes[status]
         return new_status
 
-    def set_attribute(self, attr: str, value: int | str | bool) -> None:
+    def set_attribute(self, attr: str, value: float | str | bool) -> None:
         """Midea x40 Device set attribute."""
         if attr in [
             DeviceAttributes.light,
@@ -139,11 +149,9 @@ class MideaX40Device(MideaDevice):
             message.ventilation = self._attributes[DeviceAttributes.ventilation]
             message.smelly_sensor = self._attributes[DeviceAttributes.smelly_sensor]
             message.fan_speed = self._attributes[DeviceAttributes.fan_speed]
-            message.direction = self._convert_to_midea_direction(
-                self._attributes[DeviceAttributes.direction],
-            )
+            message.direction = self._get_midea_direction()
             if attr == DeviceAttributes.direction:
-                message.direction = self._convert_to_midea_direction(str(value))
+                message.direction = self._convert_to_midea_direction(value)
             elif (
                 attr == DeviceAttributes.ventilation
                 and message.fan_speed == VENTILATION_FAN_SPEED
