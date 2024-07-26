@@ -29,6 +29,7 @@ class DeviceAttributes(StrEnum):
     direction = "direction"
     oscillation = "oscillation"
     ventilation = "ventilation"
+    anion = "anion"
     smelly_sensor = "smelly_sensor"
     current_temperature = "current_temperature"
 
@@ -67,6 +68,7 @@ class MideaX40Device(MideaDevice):
                 DeviceAttributes.direction: None,  # 60~120 or None
                 DeviceAttributes.oscillation: None,  # bool or None
                 DeviceAttributes.ventilation: False,
+                DeviceAttributes.anion: None,
                 DeviceAttributes.smelly_sensor: False,
                 DeviceAttributes.current_temperature: None,
             },
@@ -141,12 +143,14 @@ class MideaX40Device(MideaDevice):
             DeviceAttributes.fan_speed,
             DeviceAttributes.direction,
             DeviceAttributes.ventilation,
+            DeviceAttributes.anion,
             DeviceAttributes.smelly_sensor,
         ]:
             message = MessageSet(self._message_protocol_version)
             message.fields = self._fields
             message.light = self._attributes[DeviceAttributes.light]
             message.ventilation = self._attributes[DeviceAttributes.ventilation]
+            message.anion = self._attributes.get(DeviceAttributes.anion, False)
             message.smelly_sensor = self._attributes[DeviceAttributes.smelly_sensor]
             message.fan_speed = self._attributes[DeviceAttributes.fan_speed]
             message.direction = self._get_midea_direction()

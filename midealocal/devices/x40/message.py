@@ -68,6 +68,7 @@ class MessageSet(MessageX40Base):
         self.direction: int
         self.ventilation = False
         self.smelly_sensor = False
+        self.anion = False
 
     def read_field(self, field: str) -> int | bool:
         """X40 message set read field."""
@@ -81,6 +82,7 @@ class MessageSet(MessageX40Base):
         fan_speed = 0xFF if self.fan_speed == 0 else 30 if self.fan_speed == 1 else 100
         ventilation = 1 if self.ventilation else 0
         direction = self.direction
+        anion = 1 if self.anion else 0
         smelly_sensor = 1 if self.smelly_sensor else 0
         return bytearray(
             [
@@ -120,7 +122,7 @@ class MessageSet(MessageX40Base):
                 self.read_field("SOFT_WIND_SPEED"),
                 self.read_field("SOFT_WIND_DIRECTION"),
                 self.read_field("WINDLESS_ENABLE"),
-                self.read_field("ANION_ENABLE"),
+                anion,
                 smelly_sensor,
                 self.read_field("SMELLY_THRESHOLD"),
             ],
@@ -171,7 +173,7 @@ class MessageX40Body(MessageBody):
         self.fields["SOFT_WIND_SPEED"] = body[41]
         self.fields["SOFT_WIND_DIRECTION"] = body[42]
         self.fields["WINDLESS_ENABLE"] = body[43]
-        self.fields["ANION_ENABLE"] = body[44]
+        self.anion = body[44] > 0
         self.smelly_sensor = body[45]
         self.fields["SMELLY_THRESHOLD"] = body[46]
         if blow:
